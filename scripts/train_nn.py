@@ -19,11 +19,11 @@ except ImportError:
 
 # Config input args.
 parser = argparse.ArgumentParser()
-parser.add_argument("--configpath", help="Set the path to the config file.")
+parser.add_argument("--config_path", help="Set the path to the config file.")
 args = parser.parse_args()
 
 # Loading config
-with open(args.configpath, 'r') as f:
+with open(args.config_path, 'r') as f:
     config = yaml.safe_load(f)
     print("Loaded config file.")
 
@@ -40,7 +40,7 @@ base_name = config["output"]["name"]
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 run_dir = Path("outputstraining") / f"{base_name}_{timestamp}"
 run_dir.mkdir(parents=True,exist_ok=False)
-shutil.copy(args.configpath, run_dir / "config.yaml")
+shutil.copy(args.config_path, run_dir / "config.yaml")
 print(f"Made run_dir: {run_dir}")
 
 
@@ -93,7 +93,7 @@ with torch.no_grad():
         loss_total += loss_fn(output, y).item()
 
 init_loss = loss_total / len(train_loader)
-print(f"Initial loss: {init_loss:.6f} (expected ~1.02)")
+print(f"Initial loss: {init_loss:.6f}")
 if use_wandb:
     wandb.log({"init_loss": init_loss})
 
