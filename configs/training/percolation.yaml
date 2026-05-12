@@ -1,0 +1,44 @@
+seed: 42
+
+output: 
+  name: Test_train
+
+dataset:
+  name: percolation
+  params:
+      data_dir: data/percolation/genc_v1/
+      data_file: percolation_dataset_size200000_dim100_seed0_1cluster.npz #percolation_dataset_size200000_dim100_seed0.npz
+
+logging:
+  wandb: false  # set to true to enable W&B logging
+
+model:
+  name: residual_mlp
+  params:
+    d_model: 256
+    expansion: 4
+    activation: relu
+    n_blocks: 3
+    input_dim: 100
+    output_dim: 1
+
+training:
+  loss: mse
+  batch_size: 1024
+  epochs: 250
+  max_patience: 3200 # Set higher than epochs to dissable 
+  diag_interval: 50 # log diagnostics every N epochs
+  checkpoint_interval: 50  # save model checkpoint every N epochs
+  compute_update_norm: True  # log gradient update norms during training
+  max_grad_norm: .inf # gradient clipping; .inf disables it
+  scheduler:
+    name: cosine # cosine or ReduceLROnPlateau
+    patience: 50 # only used with ReduceLROnPlateau scheduler, ignored for cosine
+    factor: 0.5 # only used with ReduceLROnPlateau scheduler, ignored for cosine
+    T_max: 500  # should match epochs for a full cosine decay
+    eta_min: 0.000001 # minimum learning rate at end of cosine schedule
+  optimizer:
+    name: adamw
+    lr: 0.0001
+    weight_decay: 0.01
+     

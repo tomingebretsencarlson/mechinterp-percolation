@@ -1,0 +1,406 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
+import argparse
+import re
+import numpy as np
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from plot_utils import pretty_layer_name_short, is_hidden_layer
+
+plt.rcParams.update({'font.size': 16})
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--input_dir", required=True, help="Directory containing per_latent_mse_depth_*.csv files")
+parser.add_argument("--output_dir", default=None, help="Where to save plots. Defaults to input_dir.")
+parser.add_argument("--min_baseline_mse", type=float, default=1e-4, help="Filter latents with baseline_mse below this threshold.")
+parser.add_argument("--min_subtree_size", type=int, default=0, help="Filter latents with subtree_size below this threshold.")
+parser.add_argument("--min_energy", type=float, default=0.0, help="Filter latents with energy below this threshold.")
+parser.add_argument("--x_min_fit", type=float, default=0.0, help="Filter points below x_min_fit below this threshold for the powerlaw fit.")
+parser.add_argument("--n_bins", type=int, default=5, help="Number bins in the medain MSE plot.")
+parser.add_argument("--debug", type= bool,  default=False, help="Boolean to add debug print outs.")
+parser.add_argument("--collapse_layer", type=str, default="mlp_blocks_0", help="Layer to use for curve-collapse plot. Defaults to last residual stream layer.")
+parser.add_argument("--n_top_clusters", type=int, default=5, help="Number of largest clusters to show in the curve collapse plot.")
+parser.add_argument("--ratio_errorbars", action="store_true", help="Use errorbars in the ratiopad")
+
+
+args = parser.parse_args()
+
+input_dir = Path(args.input_dir)
+output_dir = Path(args.output_dir) if args.output_dir else input_dir
+output_dir.mkdir(parents=True, exist_ok=True)
+
+# Collect all per-latent CSVs: per_latent_mse_depth_{depth}_{layer}.csv
+per_latent_files = sorted(input_dir.glob("per_latent_mse_depth_*.csv"))
+if not per_latent_files:
+    raise FileNotFoundError(f"No per_latent_mse_depth_*.csv files found in {input_dir}")
+
+
+# Parse depth and layer, collect into dict[layer] -> list of DataFrames
+layer_records = {}
+for f in per_latent_files:
+    match = re.search(r"per_latent_mse_depth_(\d+)_(.+)\.csv", f.name)
+    if not match:
+        continue
+    depth = int(match.group(1))
+    layer = match.group(2)
+    df = pd.read_csv(f)
+    df["depth"] = depth
+    df["energy"] = df["subtree_size"] / np.sqrt(df["cluster_size"])
+    df["score"] = df["mse"]
+    if layer not in layer_records:
+        layer_records[layer] = []
+    layer_records[layer].append(df)
+# Option 1: find the df for depth 8 directly
+print("layer_records.keys() = ", layer_records.keys())
+
+
+# Sort layers
+def layer_sort_key(name):
+    if name == "raw_x":
+        return (-1, -1)
+    if name == "input_layer":
+        return (0, 0)
+    m = re.search(r"(\d+)", name)
+    return (1, int(m.group(1))) if m else (2, 0)
+
+layers_sorted = sorted(layer_records.keys(), key=layer_sort_key)
+print("Sorted layers: ", layers_sorted)
+depths_all = sorted(set(df["depth"].iloc[0] for dfs in layer_records.values() for df in dfs))
+colors = plt.cm.viridis(np.linspace(0, 0.9, len(depths_all)))
+depth_to_color = {d: colors[i] for i, d in enumerate(depths_all)}
+
+
+if args.debug:
+    for layer in layers_sorted:
+        print("\n:", layer)
+        print("layer_records[layer 0] = \n", layer_records[layer][0:2])
+        dfs = layer_records[layer]
+        all_df = pd.concat(dfs, ignore_index=True)
+        print("all_df.head(20): ", all_df.head(40))
+        print("layer_records[layer 1] = \n", layer_records[layer][-1])
+
+for layer in layers_sorted:
+    if layer == "raw_x":
+        continue
+    dfs = layer_records[layer]
+    all_df = pd.concat(dfs, ignore_index=True)
+    all_df = all_df[all_df["baseline_mse"] >= args.min_baseline_mse]
+    all_df = all_df[all_df["subtree_size"] >= args.min_subtree_size]
+    all_df = all_df[all_df["energy"] >= args.min_energy]
+
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for depth in depths_all:
+        sub = all_df[all_df["depth"] == depth]
+        ax.scatter(sub["energy"], sub["score"], alpha=0.4, s=10,
+                   color=depth_to_color[depth], label=f"d={depth}")
+
+    ax.set_xscale("log")
+    ax.set_xlabel("subtree_size / √cluster_size")
+    ax.set_ylabel("MSE")
+    ax.set_title(f"Per-latent MSE vs subtree_size/√cluster_size: {layer}")
+    ax.legend(fontsize=7, ncol=2)
+    fig.tight_layout()
+    out_path = output_dir / f"mse_scatter_{layer}_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.pdf"
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+    # Box plot: score distribution per depth
+    fig, ax = plt.subplots(figsize=(8, 5))
+    data_per_depth = [all_df[all_df["depth"] == d]["score"].values for d in depths_all]
+    bp = ax.boxplot(data_per_depth, positions=range(len(depths_all)), patch_artist=True,
+                medianprops=dict(color="red", linewidth=2), showfliers=False )
+    for patch, color in zip(bp["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+    ax.set_xticks(range(len(depths_all)))
+    ax.set_xticklabels([f"d={d}" for d in depths_all], rotation=45)
+    ax.set_ylabel("MSE")
+    ax.set_xlabel("Depth")
+    ax.set_title(f"MSE distribution per depth: {layer}")
+    fig.tight_layout()
+    out_path = output_dir / f"mse_boxplot_depth_{layer}_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.pdf"
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+    # Box plot: score distribution binned by energy
+    fig, ax = plt.subplots(figsize=(8, 5))
+    all_df_e = all_df[all_df["energy"] > 0].copy()
+    n_bins = args.n_bins
+    bins = np.logspace(np.log10(all_df_e["energy"].min()),
+                       np.log10(all_df_e["energy"].max()), n_bins + 1)
+    all_df_e["energy_bin"] = pd.cut(all_df_e["energy"], bins=bins, labels=False)
+    data_per_bin = [all_df_e[all_df_e["energy_bin"] == b]["score"].values for b in range(n_bins)]
+    bin_labels = [f"{bins[i]:.1e}" for i in range(n_bins)]
+    bin_colors = plt.cm.viridis(np.linspace(0, 0.9, n_bins))
+
+    bp = ax.boxplot(data_per_bin, positions=range(n_bins), patch_artist=True,
+                    medianprops=dict(color="red", linewidth=2), showfliers=False)
+    for w in bp["whiskers"]:
+        w.set_visible(False)
+    for c in bp["caps"]:
+        c.set_visible(False)
+    for patch, color in zip(bp["boxes"], bin_colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+    ax.set_xticks(range(n_bins))
+    ax.set_xticklabels(bin_labels, rotation=45, ha="right")
+    ax.set_ylabel("MSE")
+    ax.set_xlabel("subtree_size / √cluster_size (bin lower edge)")
+    fig.tight_layout()
+    out_path = output_dir / f"mse_boxplot_binned_{layer}_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.pdf"
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved {out_path}")
+
+print(f"\nAll plots saved to {output_dir}")
+
+# Print and plot median MSE per energy bin per layer
+print("\n=== Median MSE per energy bin per layer ===")
+n_bins = args.n_bins
+
+def block_color_key(name):
+    if name in ("input_layer", "raw_x"):
+        return 0
+    m = re.search(r"mlp_blocks_(\d+)", name)
+    return int(m.group(1)) + 1 if m else 0
+
+unique_color_keys = sorted(set(block_color_key(l) for l in layers_sorted))
+mlp_keys = [k for k in unique_color_keys if k > 0]
+color_map = {0: "black"}
+for i, k in enumerate(mlp_keys):
+    color_map[k] = plt.cm.viridis(0.1 + 0.75 * i / max(len(mlp_keys) - 1, 1))
+
+has_raw_x = "raw_x" in layer_records
+if has_raw_x:
+    fig_med, (ax_med, ax_ratio) = plt.subplots(
+        2, 1, sharex=True, figsize=(8, 7),
+        gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05}
+    )
+else:
+    fig_med, ax_med = plt.subplots(figsize=(8, 5))
+    ax_ratio = None
+all_medians_global = []
+for li, layer in enumerate(layers_sorted):
+    if layer == "raw_x":
+        continue
+    dfs = layer_records[layer]
+    all_df = pd.concat(dfs, ignore_index=True)
+    all_df = all_df[all_df["baseline_mse"] >= args.min_baseline_mse]
+    all_df = all_df[all_df["subtree_size"] >= args.min_subtree_size]
+    all_df = all_df[all_df["energy"] >= args.min_energy]
+    all_df_e = all_df[all_df["energy"] > 0].copy()
+    bins = np.logspace(np.log10(all_df_e["energy"].min()), np.log10(all_df_e["energy"].max()), n_bins + 1)
+    all_df_e["energy_bin"] = pd.cut(all_df_e["energy"], bins=bins, labels=False)
+    bin_centers = np.sqrt(bins[:-1] * bins[1:])
+    medians, yerr_lower, yerr_upper = [], [], []
+    print(f"\n{layer}:")
+    for b in range(n_bins):
+        sub = all_df_e[all_df_e["energy_bin"] == b]["score"]
+        if args.debug:
+            sub_debug = sub.iloc[0:4]
+            print("layer, bin: ", layer, b)
+            print("all_df_e[...][0:5]:\n", all_df_e[all_df_e["energy_bin"] == b].iloc[0:4])
+            print("soreted sub_debug (first 5):\n", np.sort(sub_debug))
+            print("sub_debug.median() =", sub_debug.median())
+
+        med = sub.median()
+        q25, q75 = sub.quantile(0.25), sub.quantile(0.75)
+        medians.append(med)
+        yerr_lower.append(med - q25)
+        yerr_upper.append(q75 - med)
+        print(f"  bin {b} [{bins[b]:.2e}, {bins[b+1]:.2e}): median={med:.4f}, IQR=[{q25:.4f}, {q75:.4f}], n={len(sub)}")
+    medians = np.array(medians)
+    all_medians_global.extend(medians[~np.isnan(medians)].tolist())
+    yerr = [np.array(yerr_lower), np.array(yerr_upper)]
+    xerr = [bin_centers - bins[:-1], bins[1:] - bin_centers]
+    marker = "s" if is_hidden_layer(layer) else "o"
+    fillstyle = "none" if is_hidden_layer(layer) else "full"
+    color = color_map[block_color_key(layer)]
+    ax_med.errorbar(bin_centers, medians, yerr=yerr, xerr=xerr, fmt=marker, linestyle="none",
+                    color=color, fillstyle=fillstyle, markersize=8,
+                    label=pretty_layer_name_short(layer), capsize=0)
+
+    if layer == "mlp_blocks_2" and not any(np.isnan(medians)) and (medians > 0).all():
+        from scipy import stats
+        fit_mask = bin_centers >= args.x_min_fit
+        slope, intercept, r, _, _ = stats.linregress(np.log10(bin_centers[fit_mask]), np.log10(medians[fit_mask]))
+        x_fit = np.logspace(np.log10(bins[0]), np.log10(bins[-1]), 50)
+        y_fit = 10 ** (intercept + slope * np.log10(x_fit))
+        fit_line, = ax_med.plot(x_fit, y_fit, ":", color="black", linewidth=2.5, label="_nolegend_", zorder=10)
+        fit_label = f"MLP block 2 fit: slope={slope:.2f}"
+        print(f"\nPower law fit for {layer}: slope={slope:.3f}, R²={r**2:.3f}")
+        print("Medians: ", medians)
+        print("yerr: ", yerr)
+
+ax_med.set_xscale("log")
+ax_med.set_yscale("log")
+ax_med.set_xlim(0.3, 480)
+if not has_raw_x:
+    ax_med.set_xlabel(r"$s_\mathrm{latent} / \sqrt{s_\mathrm{cluster}}$")
+ax_med.set_ylabel("MSE")
+color_handles = []
+for k in unique_color_keys:
+    label = "Input layer" if k == 0 else f"MLP block {k - 1}"
+    color_handles.append(mpatches.Patch(color=color_map[k], label=label))
+if 'fit_line' in dir():
+    fit_line.set_label(fit_label)
+    color_handles.append(fit_line)
+leg1 = ax_med.legend(handles=color_handles, fontsize=10, loc="upper right")
+ax_med.add_artist(leg1)
+
+style_handles = [
+    mlines.Line2D([], [], color="gray", marker="o", linestyle="none", markersize=8, fillstyle="full", label="Residual stream"),
+    mlines.Line2D([], [], color="gray", marker="s", linestyle="none", markersize=8, fillstyle="none", label="Hidden layer"),
+]
+ax_med.legend(handles=style_handles, fontsize=10, loc="lower left")
+if not has_raw_x:
+    out_path = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.pdf"
+    out_path_png = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.png"
+    fig_med.tight_layout()
+    fig_med.savefig(out_path, dpi=150)
+    fig_med.savefig(out_path_png, dpi=150)
+    plt.close(fig_med)
+    print(f"\nSaved {out_path}")
+
+# --- Ratio panel (normalized by raw_x median per bin) embedded in fig_med ---
+if has_raw_x:
+    raw_x_df = pd.concat(layer_records["raw_x"], ignore_index=True)
+    raw_x_df = raw_x_df[raw_x_df["baseline_mse"] >= args.min_baseline_mse]
+    raw_x_df = raw_x_df[raw_x_df["subtree_size"] >= args.min_subtree_size]
+    raw_x_df = raw_x_df[raw_x_df["energy"] > 0].copy()
+    shared_bins = np.logspace(np.log10(raw_x_df["energy"].min()), np.log10(raw_x_df["energy"].max()), n_bins + 1)
+    shared_bin_centers = np.sqrt(shared_bins[:-1] * shared_bins[1:])
+    raw_x_lookup = raw_x_df.set_index(["latent_id", "depth"])["score"]
+
+    for layer in layers_sorted:
+        if layer == "raw_x":
+            continue
+        dfs = layer_records[layer]
+        all_df = pd.concat(dfs, ignore_index=True)
+        all_df = all_df[all_df["baseline_mse"] >= args.min_baseline_mse]
+        all_df = all_df[all_df["subtree_size"] >= args.min_subtree_size]
+        all_df_e = all_df[all_df["energy"] > 0].copy()
+        all_df_e = all_df_e.join(raw_x_lookup.rename("raw_x_score"), on=["latent_id", "depth"])
+        all_df_e["ratio"] = all_df_e["score"] / all_df_e["raw_x_score"]
+        if args.debug:
+            print("\n")
+            print("layer: ", layer)
+            print("raw_x_lookup:\n ", raw_x_lookup)
+            print("all_df_e[[latent_id, score, raw_x_score, ratio]]: ", all_df_e[["latent_id", "score", "raw_x_score", "ratio"]])
+
+        all_df_e["energy_bin"] = pd.cut(all_df_e["energy"], bins=shared_bins, labels=False)
+        medians_norm, yerr_lower, yerr_upper = [], [], []
+        for b in range(n_bins):
+            sub = all_df_e[all_df_e["energy_bin"] == b]["ratio"]
+            med = sub.median()
+            medians_norm.append(med)
+            yerr_lower.append(med - sub.quantile(0.25))
+            yerr_upper.append(sub.quantile(0.75) - med)
+        medians_norm = np.array(medians_norm)
+   
+        xerr = [shared_bin_centers - shared_bins[:-1], shared_bins[1:] - shared_bin_centers]
+        marker = "s" if is_hidden_layer(layer) else "o"
+        fillstyle = "none" if is_hidden_layer(layer) else "full"
+        color = color_map[block_color_key(layer)]
+        if args.ratio_errorbars:
+            ax_ratio.errorbar(shared_bin_centers, medians_norm,
+                            yerr=[np.array(yerr_lower), np.array(yerr_upper)], xerr=xerr,
+                            fmt=marker, linestyle="none", color=color, fillstyle=fillstyle, markersize=8, capsize=0)
+        else:
+            ax_ratio.errorbar(shared_bin_centers, medians_norm, xerr=xerr,
+                            fmt=marker, linestyle="none", color=color, fillstyle=fillstyle, markersize=8, capsize=0)
+    ax_ratio.axhline(1.0, color="black", linestyle="--", linewidth=1)
+    ax_ratio.set_ylim(0.0, 1.5)
+    ax_ratio.set_xlabel(r"$s_\mathrm{latent} / \sqrt{s_\mathrm{cluster}}$")
+    ax_ratio.set_ylabel(r"MSE / MSE$_\mathrm{raw\ x}$", fontsize=12)
+
+    out_path = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}_eb_{args.ratio_errorbars}.pdf"
+    out_path_png = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}_eb_{args.ratio_errorbars}.png"
+    fig_med.tight_layout()
+    fig_med.savefig(out_path, dpi=150)
+    fig_med.savefig(out_path_png, dpi=150)
+    plt.close(fig_med)
+    print(f"\nSaved {out_path}")
+else:
+    print("No raw_x data: saved standalone median MSE plot without ratio panel")
+
+# --- Curve collapse plot ---
+collapse_layer = args.collapse_layer if args.collapse_layer else layers_sorted[-1]
+if collapse_layer not in layer_records:
+    print(f"Warning: collapse_layer '{collapse_layer}' not found. Available: {list(layer_records.keys())}")
+else:
+    print(f"\n=== Curve collapse plot for layer: {collapse_layer} ===")
+    dfs = layer_records[collapse_layer]
+    all_df = pd.concat(dfs, ignore_index=True)
+    all_df = all_df[all_df["baseline_mse"] >= args.min_baseline_mse]
+    all_df = all_df[all_df["subtree_size"] >= args.min_subtree_size]
+    all_df = all_df[all_df["cluster_size"] > 0].copy()
+
+    if all_df["cluster_size"].nunique() == 1:
+        print("Only one unique cluster_size — skipping collapse plot (no collapse to show).")
+    else:
+        # Pick N largest clusters by cluster_size
+        top_clusters = (
+            all_df.groupby("cluster_id")["cluster_size"].first()
+            .nlargest(args.n_top_clusters)
+        )
+        print(f"Top {args.n_top_clusters} clusters: {top_clusters.to_dict()}")
+
+        n_st_bins = args.n_bins
+        all_df_e = all_df[all_df["energy"] > 0].copy()
+        st_bins = np.logspace(np.log10(all_df_e["energy"].min()),
+                              np.log10(all_df_e["energy"].max()), n_st_bins + 1)
+        st_centers = np.sqrt(st_bins[:-1] * st_bins[1:])
+        all_df_e["st_bin"] = pd.cut(all_df_e["energy"], bins=st_bins, labels=False)
+
+        WONG = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"]
+        cluster_colors = [WONG[i % len(WONG)] for i in range(len(top_clusters))]
+
+        fig, ax = plt.subplots()
+        for (cid, cs), color in zip(top_clusters.items(), cluster_colors):
+            sub_c = all_df_e[all_df_e["cluster_id"] == cid]
+            label = f"${cs}$"
+            print("cluster_id: ", cid)
+            medians_st = []
+            print(f"\n  cluster {cid} (size={cs}):")
+            for s in range(n_st_bins):
+                sub_s = sub_c[sub_c["st_bin"] == s][["latent_id", "mse"]]
+                med = sub_s["mse"].median()
+                medians_st.append(med)
+                print("bin, mse med: ", s, med)
+                if args.debug:
+                    print(f"    bin {s} [{st_bins[s]:.1f}, {st_bins[s+1]:.1f}): n={len(sub_s)}, median={med:.4f}")
+                    for _, r in sub_s.iterrows():
+                        print(f"      latent {int(r['latent_id'])}: mse={r['mse']:.4f}")
+            medians_st = np.array(medians_st)
+            valid = ~np.isnan(medians_st)
+            xerr = [st_centers - st_bins[:-1], st_bins[1:] - st_centers]
+
+            ax.plot(st_centers[valid], medians_st[valid],
+                    "-", color=color, linewidth=2.0, alpha=0.3)
+            ax.errorbar(st_centers[valid], medians_st[valid],
+                        xerr=[xerr[0][valid], xerr[1][valid]],
+                        fmt="o", linestyle="none", color=color,
+                        markersize=6, capsize=0, alpha=0.3, label="_nolegend_")
+            ax.plot(st_centers[valid], medians_st[valid],
+                    "o", color=color, markersize=6, alpha=1.0, label=label)
+            print(f"  total latents in cluster: {len(sub_c)}")
+
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_ylabel("MSE")
+        ax.set_xlabel(r"$s_\mathrm{latent} / \sqrt{s_\mathrm{cluster}}$")
+        ax.legend(fontsize=10, title=r"$s_\mathrm{cluster}$:", title_fontsize=10)
+        fig.tight_layout()
+        out_path = output_dir / f"curve_collapse_energy_{collapse_layer}_mss{args.min_subtree_size}_ncluster{args.n_top_clusters}.pdf"
+        fig.savefig(out_path, dpi=150)
+        out_path_png = output_dir / f"curve_collapse_energy_{collapse_layer}_mss{args.min_subtree_size}_ncluster{args.n_top_clusters}.png"
+        fig.savefig(out_path_png, dpi=150)
+        plt.close(fig)
+        print(f"Saved {out_path}")

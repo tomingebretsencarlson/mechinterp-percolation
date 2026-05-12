@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# Data
+data/raw/
+data/synthetic/*.pt
+
+# Checkpoints
+checkpoints/
+logs/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Data
+analysis/data/
+data/**
+!data/percolation/
+!data/percolation/genc_v1/
+!data/percolation/genc_v1/.gitkeep
+!data/percolation/gen_v1/
+!data/percolation/gen_v1/.gitkeep
+!data/percolation/gen_v2/
+!data/percolation/gen_v2/.gitkeep
+!data/percolation/gen_v4/
+!data/percolation/gen_v4/.gitkeep
+*.gz
+*.ubyte
+
+# Outputs
+outputs/*
+!outputs/.gitkeep
+outputsinterp/*
+!outputsinterp/.gitkeep
+outputstraining/*
+!outputstraining/.gitkeep
+analysis/plots/*
+!analysis/plots/.gitkeep
+
+# vscode
+.vscode/
