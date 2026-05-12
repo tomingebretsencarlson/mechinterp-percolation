@@ -11,22 +11,18 @@ Using statistically self-similar synthetic datasets based on a percolation clust
 
 ## Structure
 ```
-data/           – synthetic data generation and storage
+data/           – synthetic data storage
 datasets/       – PyTorch Dataset wrappers
-models/         – MLP architectures (residual, transformer-style)
+models/         – MLP architectures (residual mlp)
 training/       – training loop, losses, optimizers, scheduler
 interp/         – mechanistic interpretability tools
 configs/        – YAML experiment configurations
-  training/     – configs for NN training runs
-  interp/       – configs for interpretability runs
+  training/         – configs for NN training runs
+  interp/           – configs for interpretability runs
 analysis/       – notebooks and plotting utilities
 scripts/        – entry points for training and evaluation
-  train_nn.py                       – train a neural network
-  train_sae.py                      – train a sparse autoencoder
-  plot_training.py                  – generate training diagnostic plots
-  filter_percolationdataset.py      – filter/subset datasets
-  colab_training_nn_run_sweep.ipynb – Colab notebook for hand-picked sweeps
-  colab_training_nn_run_rnd_search.ipynb – Colab notebook for random search
+  train_nn.py         – train a neural network
+  train_probes.py     - train probes
 ```
 
 Output folders (not tracked in git, created on first run):
@@ -44,31 +40,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Google Colab:**
-```bash
-pip install -r requirements_colab.txt
-```
-
-## Running Training
+## Training the NN 
 
 Training is fully configuration-driven via YAML files in `configs/training/`.
 
 ```bash
-PYTHONPATH=. python scripts/train_nn.py --configpath configs/training/percolation.yaml
+PYTHONPATH=. python -m scripts.train_nn.py --config_path configs/training/percolation.yaml
 ```
 
 Outputs (model checkpoint, loss curves, config copy) are saved to `outputstraining/<run_name>_<timestamp>/`.
 
-## Running on Google Colab
+## Training probes 
 
-- `scripts/colab_training_nn_run_sweep.ipynb` — run hand-picked sweep configurations
-- `scripts/colab_training_nn_run_rnd_search.ipynb` — run a random hyperparameter search
-
-Both notebooks clone the repo, copy data from Google Drive, run training, and sync outputs back to Drive.
-
-## Weights & Biases
-
-Training supports optional W&B logging. Add your API key as a Colab secret named `WANDB_API_KEY`. Metrics logged include per-epoch train/val loss, grad norm, R², and the epoch at which val loss first beats the 1-NN baseline.
 
 ## Configuration
 
@@ -77,21 +60,21 @@ Key fields in a training config:
 ```yaml
 seed: 42
 
-output:
-  name: my_run_name
+output: 
+  name: sweep_percolation_run_1_cluster_wd_0p01_lr1e-4consineetamin1e-6
 
 dataset:
   name: percolation
   params:
-    data_dir: data/percolation/gen_v2/
-    data_file: percolation_dataset_size200000_dim100_seed0_1cluster.npz
+      data_dir: data/percolation/genc_v1/
+      data_file: percolation_dataset_size200000_dim100_seed0.npz
 
 model:
-  name: transformer_style_mlp
+  name: residual_mlp
   params:
-    d_model: 100
+    d_model: 256
     expansion: 4
-    activation: gelu
+    activation: relu
     n_blocks: 3
     input_dim: 100
     output_dim: 1
@@ -99,15 +82,25 @@ model:
 training:
   loss: mse
   batch_size: 1024
-  epochs: 2500
-  max_patience: 2500
-  compute_update_norm: false   # set true to track per-epoch parameter update norms (slower)
+  epochs: 500
+  max_patience: 3200 # Set higher than epochs to dissable 
+  diag_interval: 100 # log diagnostics every N epochs
+  checkpoint_interval: 50  # save model checkpoint every N epochs
+  compute_update_norm: True  # log gradient update norms during training
+  max_grad_norm: .inf # gradient clipping; .inf disables it
   scheduler:
-    name: cosine               # cosine, reduce_on_plateau, or None
-    T_max: 2500
-    eta_min: 1e-7
+    name: cosine
+    patience: 50 # only used with ReduceLROnPlateau scheduler, ignored for cosine
+    factor: 0.5 # only used with ReduceLROnPlateau scheduler, ignored for cosine
+    T_max: 500  # should match epochs for a full cosine decay
+    eta_min: 0.000001 # minimum learning rate at end of cosine schedule
   optimizer:
     name: adamw
-    lr: 5e-5
+    lr: 0.0001
     weight_decay: 0.01
+     
+
+
+
+ 
 ```
