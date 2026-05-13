@@ -16,7 +16,6 @@ from sklearn.metrics import mean_squared_error
 parser = argparse.ArgumentParser()
 parser.add_argument("--config_path", required=True, help="Give path to the probe training config.")
 parser.add_argument("--shuffle_y", action="store_true", help="Shuffle targets as a sanity check. Probe should return MSE ≈ baseline and R² ≈ 0.")
-parser.add_argument("--debug", action="store_true",  help="Adds debug print outs.")
 
 
 args = parser.parse_args()
@@ -190,23 +189,32 @@ for tree_height in tree_heights:
         for lid in lids_to_print:
             print(f"[DEBUG] latent {lid}: z_u = {latent_to_value[lid]:.4f}, count = {latent_to_count[lid]}, cluster_size = {latent_to_cluster_size.get(lid, 'N/A')}")
 
-        print("[DEBUG] Before shuffle:")
-        for label, idx in [("First", 0), ("Last", -1)]:
-            print(f"  {label} point — idx={rows[idx]}, latent={latent_ids[idx]}, z_u={targets[idx]:.4f}")
+        track = [(rows[i], latent_ids[i], targets[i]) for i in range(min(10, n_points))]
+        print("[DEBUG] Tracking 5 points through shuffle (dataset_idx, latent_id, z_u):")
+        print("  Before:")
+        for r, l, t in track:
+            print(f"    row={r}, latent={l}, z_u={t:.4f}")
 
     if n_points == 0:
         print("No points remaining after filtering. Skipping.")
         continue
 
-    # Shuffle
+    # Shuffle to not bias training on cluster size
     rng = np.random.default_rng(probe_config["seed"])
     perm = rng.permutation(n_points)
     rows = rows[perm]
     targets = targets[perm]
     latent_ids = latent_ids[perm]
 
+    if debug:
+        print("  After (located by row index):")
+        for orig_row, orig_latent, orig_target in track:
+            pos = np.where(rows == orig_row)[0][0]
+            status = "OK" if latent_ids[pos] == orig_latent and targets[pos] == orig_target else "MISMATCH"
+            print(f"    row={rows[pos]}, latent={latent_ids[pos]}, z_u={targets[pos]:.4f}  [{status}]")
 
 
+    # Sanity check for debugging
     if args.shuffle_y:
         print("[SANITY] Shuffling targets — probe should return MSE ≈ baseline, R² ≈ 0")
         targets = rng.permutation(targets)
@@ -262,6 +270,14 @@ for tree_height in tree_heights:
 
         # Normalize using train rows stats only
         probe_np = probe_tensor.detach().numpy()
+
+        if debug:
+            print("Before norm:")
+            for i in [10, 100]:
+                orig_idx = rows[i]
+                print(f"[DEBUG] Probe input check — position {i}, dataset_idx={orig_idx}")
+                print(f"  X raw first 5: {probe_np[orig_idx, :5].tolist()}")
+
         X_all = probe_np[rows]
         mean, std = get_stats(torch.tensor(X_all[:train_size]))
         probe_tensor = normalize(probe_tensor, mean, std)
@@ -270,6 +286,15 @@ for tree_height in tree_heights:
         X_all = probe_np[rows]
         X_train = X_all[:train_size]
         X_val = X_all[train_size:]
+
+        if debug:
+            print("After norm:")
+            for i in [10, 100]:
+                orig_idx = rows[i]
+                print(f"[DEBUG] Probe input check — position {i}, dataset_idx={orig_idx}")
+                print(f"  z_u target:        {y_train[i]:.4f}")
+                print(f"  latent_id:         {latent_ids[i]}")
+                print(f"  X first 5 values:  {X_train[i, :5].tolist()}")
 
         reg = Ridge(alpha=alpha)
         reg.fit(X_train, y_train)
@@ -288,12 +313,12 @@ for tree_height in tree_heights:
                 z_u = latent_to_value[lid]
                 baseline_mse = (global_train_mean - z_u) ** 2
                 per_latent_rows.append({"latent_id": lid, "subtree_size": int(count), "cluster_size": latent_to_cluster_size.get(lid, 0), "cluster_id": latent_to_cluster_id.get(lid, 0), "mse": mse, "baseline_mse": baseline_mse})
-                if debug:
-                    if  np.mean(mask)  < 5:
-                        print("\nlid, z_u = ", lid, z_u)
-                        print("laten mse calculated: ", mse)
-                        print("y_val[mask]: ", y_val[mask])
-                        print("preds_val[mask]: ", preds_val[mask])
+                #if debug:
+                #    if  mask.sum()  < 5:
+                #        print("\nlid, z_u = ", lid, z_u)
+                #        print("laten mse calculated: ", mse)
+                #        print("y_val[mask]: ", y_val[mask])
+                #        print("preds_val[mask]: ", preds_val[mask])
                         
         mean_per_latent_mse = np.mean([r["mse"] for r in per_latent_rows]) if per_latent_rows else float("nan")
 
