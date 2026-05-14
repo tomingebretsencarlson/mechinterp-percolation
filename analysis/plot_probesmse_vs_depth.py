@@ -13,7 +13,7 @@ from plot_utils import is_hidden_layer
 plt.rcParams.update({'font.size': 16})
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--input_dir", required=True, help="Directory containing regresslat_depth_*.csv files")
+parser.add_argument("--input_dir", required=True, help="Directory containing outu *.csv files from train_probes.py")
 parser.add_argument("--output_dir", default=None, help="Where to save plots. Defaults to input_dir.")
 args = parser.parse_args()
 
@@ -104,11 +104,9 @@ for i, layer in enumerate(layers_sorted):
 first_layer = layers_sorted[0]
 baseline_xs = [e["depth"] for e in layer_data[first_layer]]
 baseline_ys = [e["mean_baseline_mse"] for e in layer_data[first_layer]]
-##ax.plot(baseline_xs, baseline_ys, color="red", linestyle="--", marker="x", label="Mean predictor baseline")
 
 ax.set_xlabel("Latent depth")
 ax.set_ylabel("MSE")
-#ax.set_ylim([-0.005, 0.37])
 add_legend(ax)
 fig.tight_layout()
 out_path = output_dir / "global_mse_by_depth.pdf"
@@ -124,6 +122,9 @@ for i, layer in enumerate(layers_sorted):
     entries = layer_data[layer]
     xs = [e["depth"] for e in entries]
     ys = [e["global_r2"] for e in entries]
+    print("layer: ", layer)
+    print("depths: ", xs)
+    print("R2: ", ys)
     ax.plot(xs, ys, marker="s" if is_hidden_layer(layer) else "o",
             linestyle=":" if is_hidden_layer(layer) else "-",
             color=color_map[block_color_key(layer)], fillstyle="none" if is_hidden_layer(layer) else "full")
@@ -139,31 +140,7 @@ fig.savefig(out_path, dpi=150)
 plt.close(fig)
 print(f"Saved {out_path}")
 
-# --- Plot 3: Incremental R² gain per layer vs depth ---
-fig, ax = plt.subplots()
-for i, layer in enumerate(layers_sorted):
-    entries = layer_data[layer]
-    xs = [e["depth"] for e in entries]
-    r2s = [e["global_r2"] for e in entries]
-    if i == 0:
-        prev_r2s = [0.0] * len(r2s)
-    else:
-        prev_layer = layers_sorted[i - 1]
-        prev_entries = {e["depth"]: e["global_r2"] for e in layer_data[prev_layer]}
-        prev_r2s = [prev_entries.get(d, 0.0) for d in xs]
-    deltas = [r2 - prev for r2, prev in zip(r2s, prev_r2s)]
-    ax.plot(xs, deltas, marker="s" if is_hidden_layer(layer) else "o",
-            linestyle=":" if is_hidden_layer(layer) else "-",
-            color=color_map[block_color_key(layer)], fillstyle="none" if is_hidden_layer(layer) else "full")
 
-ax.axhline(0.0, color="red", linestyle="--", label="No gain")
-ax.set_xlabel("Latent depth")
-ax.set_ylabel("$\\Delta R^2$ (vs previous layer)")
-add_legend(ax)
-fig.tight_layout()
-out_path = output_dir / "delta_r2_by_depth.png"
-fig.savefig(out_path, dpi=150)
-plt.close(fig)
 print(f"Saved {out_path}")
 
 print(f"\nAll plots saved to {output_dir}")
