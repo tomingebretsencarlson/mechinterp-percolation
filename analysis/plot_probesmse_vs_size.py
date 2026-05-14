@@ -17,14 +17,9 @@ parser.add_argument("--input_dir", required=True, help="Directory containing per
 parser.add_argument("--output_dir", default=None, help="Where to save plots. Defaults to input_dir.")
 parser.add_argument("--min_baseline_mse", type=float, default=1e-4, help="Filter latents with baseline_mse below this threshold.")
 parser.add_argument("--min_subtree_size", type=int, default=0, help="Filter latents with subtree_size below this threshold.")
-parser.add_argument("--min_energy", type=float, default=0.0, help="Filter latents with energy below this threshold.")
 parser.add_argument("--x_min_fit", type=float, default=0.0, help="Filter points below x_min_fit below this threshold for the powerlaw fit.")
 parser.add_argument("--n_bins", type=int, default=5, help="Number bins in the medain MSE plot.")
 parser.add_argument("--debug", type= bool,  default=False, help="Boolean to add debug print outs.")
-parser.add_argument("--collapse_layer", type=str, default="mlp_blocks_0", help="Layer to use for curve-collapse plot. Defaults to last residual stream layer.")
-parser.add_argument("--n_top_clusters", type=int, default=5, help="Number of largest clusters to show in the curve collapse plot.")
-parser.add_argument("--ratio_errorbars", action="store_true", help="Use errorbars in the ratiopad")
-
 
 args = parser.parse_args()
 
@@ -89,7 +84,7 @@ for layer in layers_sorted:
     all_df = pd.concat(dfs, ignore_index=True)
     all_df = all_df[all_df["baseline_mse"] >= args.min_baseline_mse]
     all_df = all_df[all_df["subtree_size"] >= args.min_subtree_size]
-    all_df = all_df[all_df["energy"] >= args.min_energy]
+   
 
 
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -104,7 +99,7 @@ for layer in layers_sorted:
     ax.set_title(f"Per-latent MSE vs subtree_size/√cluster_size: {layer}")
     ax.legend(fontsize=7, ncol=2)
     fig.tight_layout()
-    out_path = output_dir / f"mse_scatter_{layer}_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.pdf"
+    out_path = output_dir / f"mse_scatter_{layer}_mss{args.min_subtree_size}_xm{args.x_min_fit}.pdf"
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     print(f"Saved {out_path}")
@@ -123,7 +118,7 @@ for layer in layers_sorted:
     ax.set_xlabel("Depth")
     ax.set_title(f"MSE distribution per depth: {layer}")
     fig.tight_layout()
-    out_path = output_dir / f"mse_boxplot_depth_{layer}_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.pdf"
+    out_path = output_dir / f"mse_boxplot_depth_{layer}_mss{args.min_subtree_size}_xm{args.x_min_fit}.pdf"
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     print(f"Saved {out_path}")
@@ -153,7 +148,7 @@ for layer in layers_sorted:
     ax.set_ylabel("MSE")
     ax.set_xlabel("subtree_size / √cluster_size (bin lower edge)")
     fig.tight_layout()
-    out_path = output_dir / f"mse_boxplot_binned_{layer}_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.pdf"
+    out_path = output_dir / f"mse_boxplot_binned_{layer}_mss{args.min_subtree_size}_xm{args.x_min_fit}.pdf"
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     print(f"Saved {out_path}")
@@ -193,7 +188,6 @@ for li, layer in enumerate(layers_sorted):
     all_df = pd.concat(dfs, ignore_index=True)
     all_df = all_df[all_df["baseline_mse"] >= args.min_baseline_mse]
     all_df = all_df[all_df["subtree_size"] >= args.min_subtree_size]
-    all_df = all_df[all_df["energy"] >= args.min_energy]
     all_df_e = all_df[all_df["energy"] > 0].copy()
     bins = np.logspace(np.log10(all_df_e["energy"].min()), np.log10(all_df_e["energy"].max()), n_bins + 1)
     all_df_e["energy_bin"] = pd.cut(all_df_e["energy"], bins=bins, labels=False)
@@ -260,8 +254,8 @@ style_handles = [
 ]
 ax_med.legend(handles=style_handles, fontsize=10, loc="lower left")
 if not has_raw_x:
-    out_path = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.pdf"
-    out_path_png = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}.png"
+    out_path = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_xm{args.x_min_fit}.pdf"
+    out_path_png = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_xm{args.x_min_fit}.png"
     fig_med.tight_layout()
     fig_med.savefig(out_path, dpi=150)
     fig_med.savefig(out_path_png, dpi=150)
@@ -308,20 +302,17 @@ if has_raw_x:
         marker = "s" if is_hidden_layer(layer) else "o"
         fillstyle = "none" if is_hidden_layer(layer) else "full"
         color = color_map[block_color_key(layer)]
-        if args.ratio_errorbars:
-            ax_ratio.errorbar(shared_bin_centers, medians_norm,
-                            yerr=[np.array(yerr_lower), np.array(yerr_upper)], xerr=xerr,
-                            fmt=marker, linestyle="none", color=color, fillstyle=fillstyle, markersize=8, capsize=0)
-        else:
-            ax_ratio.errorbar(shared_bin_centers, medians_norm, xerr=xerr,
-                            fmt=marker, linestyle="none", color=color, fillstyle=fillstyle, markersize=8, capsize=0)
+        ax_ratio.errorbar(shared_bin_centers, medians_norm,
+                        yerr=[np.array(yerr_lower), np.array(yerr_upper)], xerr=xerr,
+                        fmt=marker, linestyle="none", color=color, fillstyle=fillstyle, markersize=8, capsize=0)
+  
     ax_ratio.axhline(1.0, color="black", linestyle="--", linewidth=1)
     ax_ratio.set_ylim(0.0, 1.5)
     ax_ratio.set_xlabel(r"$s_\mathrm{latent} / \sqrt{s_\mathrm{cluster}}$")
     ax_ratio.set_ylabel(r"MSE / MSE$_\mathrm{raw\ x}$", fontsize=12)
 
-    out_path = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}_eb_{args.ratio_errorbars}.pdf"
-    out_path_png = output_dir / f"median_mse_by_energy_mss{args.min_subtree_size}_me{args.min_energy}_xm{args.x_min_fit}_eb_{args.ratio_errorbars}.png"
+    out_path = output_dir / f"median_perlatent_mse_by_mss{args.min_subtree_size}_xm{args.x_min_fit}.pdf"
+    out_path_png = output_dir / f"median_perlatent_mse_mss{args.min_subtree_size}_xm{args.x_min_fit}.png"
     fig_med.tight_layout()
     fig_med.savefig(out_path, dpi=150)
     fig_med.savefig(out_path_png, dpi=150)
@@ -330,77 +321,3 @@ if has_raw_x:
 else:
     print("No raw_x data: saved standalone median MSE plot without ratio panel")
 
-# --- Curve collapse plot ---
-collapse_layer = args.collapse_layer if args.collapse_layer else layers_sorted[-1]
-if collapse_layer not in layer_records:
-    print(f"Warning: collapse_layer '{collapse_layer}' not found. Available: {list(layer_records.keys())}")
-else:
-    print(f"\n=== Curve collapse plot for layer: {collapse_layer} ===")
-    dfs = layer_records[collapse_layer]
-    all_df = pd.concat(dfs, ignore_index=True)
-    all_df = all_df[all_df["baseline_mse"] >= args.min_baseline_mse]
-    all_df = all_df[all_df["subtree_size"] >= args.min_subtree_size]
-    all_df = all_df[all_df["cluster_size"] > 0].copy()
-
-    if all_df["cluster_size"].nunique() == 1:
-        print("Only one unique cluster_size — skipping collapse plot (no collapse to show).")
-    else:
-        # Pick N largest clusters by cluster_size
-        top_clusters = (
-            all_df.groupby("cluster_id")["cluster_size"].first()
-            .nlargest(args.n_top_clusters)
-        )
-        print(f"Top {args.n_top_clusters} clusters: {top_clusters.to_dict()}")
-
-        n_st_bins = args.n_bins
-        all_df_e = all_df[all_df["energy"] > 0].copy()
-        st_bins = np.logspace(np.log10(all_df_e["energy"].min()),
-                              np.log10(all_df_e["energy"].max()), n_st_bins + 1)
-        st_centers = np.sqrt(st_bins[:-1] * st_bins[1:])
-        all_df_e["st_bin"] = pd.cut(all_df_e["energy"], bins=st_bins, labels=False)
-
-        WONG = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"]
-        cluster_colors = [WONG[i % len(WONG)] for i in range(len(top_clusters))]
-
-        fig, ax = plt.subplots()
-        for (cid, cs), color in zip(top_clusters.items(), cluster_colors):
-            sub_c = all_df_e[all_df_e["cluster_id"] == cid]
-            label = f"${cs}$"
-            print("cluster_id: ", cid)
-            medians_st = []
-            print(f"\n  cluster {cid} (size={cs}):")
-            for s in range(n_st_bins):
-                sub_s = sub_c[sub_c["st_bin"] == s][["latent_id", "mse"]]
-                med = sub_s["mse"].median()
-                medians_st.append(med)
-                print("bin, mse med: ", s, med)
-                if args.debug:
-                    print(f"    bin {s} [{st_bins[s]:.1f}, {st_bins[s+1]:.1f}): n={len(sub_s)}, median={med:.4f}")
-                    for _, r in sub_s.iterrows():
-                        print(f"      latent {int(r['latent_id'])}: mse={r['mse']:.4f}")
-            medians_st = np.array(medians_st)
-            valid = ~np.isnan(medians_st)
-            xerr = [st_centers - st_bins[:-1], st_bins[1:] - st_centers]
-
-            ax.plot(st_centers[valid], medians_st[valid],
-                    "-", color=color, linewidth=2.0, alpha=0.3)
-            ax.errorbar(st_centers[valid], medians_st[valid],
-                        xerr=[xerr[0][valid], xerr[1][valid]],
-                        fmt="o", linestyle="none", color=color,
-                        markersize=6, capsize=0, alpha=0.3, label="_nolegend_")
-            ax.plot(st_centers[valid], medians_st[valid],
-                    "o", color=color, markersize=6, alpha=1.0, label=label)
-            print(f"  total latents in cluster: {len(sub_c)}")
-
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_ylabel("MSE")
-        ax.set_xlabel(r"$s_\mathrm{latent} / \sqrt{s_\mathrm{cluster}}$")
-        ax.legend(fontsize=10, title=r"$s_\mathrm{cluster}$:", title_fontsize=10)
-        fig.tight_layout()
-        out_path = output_dir / f"curve_collapse_energy_{collapse_layer}_mss{args.min_subtree_size}_ncluster{args.n_top_clusters}.pdf"
-        fig.savefig(out_path, dpi=150)
-        out_path_png = output_dir / f"curve_collapse_energy_{collapse_layer}_mss{args.min_subtree_size}_ncluster{args.n_top_clusters}.png"
-        fig.savefig(out_path_png, dpi=150)
-        plt.close(fig)
-        print(f"Saved {out_path}")
