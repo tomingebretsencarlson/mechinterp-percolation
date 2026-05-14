@@ -67,7 +67,7 @@ probe_run_dir.mkdir(parents=True, exist_ok=False)
 shutil.copy(args.config_path, probe_run_dir / "probe_config.yaml")
 print(f"Made Probe run dir: {probe_run_dir}")
 
-# Load model config
+# Load model config and get layer names
 with open(model_run_dir / "config.yaml", "r") as f:
     model_config = yaml.safe_load(f)
 
@@ -143,7 +143,7 @@ else:
 
 n_train = len(first_acts)
 
-# Outer loop over depths
+# Outer loop over depths (= tree_height)
 for tree_height in tree_heights:
     print(f"\n{'='*50}")
     print(f"=== Tree height: {tree_height} ===")
@@ -183,6 +183,7 @@ for tree_height in tree_heights:
     print(f"Subtree sizes — min: {counts.min()}, max: {counts.max()}, mean: {counts.mean():.1f}")
     latent_to_value = {lid: targets[latent_ids == lid][0] for lid in unique_latents}
     latent_to_count = dict(zip(unique_latents, counts))
+
     if debug:
         lids_to_print = unique_latents[:20] if len(unique_latents) > 20 else unique_latents
         print(f"{'[DEBUG] First 20' if len(unique_latents) > 50 else 'All'} latents (latent_id, z_u, count):")
@@ -207,7 +208,7 @@ for tree_height in tree_heights:
     latent_ids = latent_ids[perm]
 
     if debug:
-        print("  After (located by row index):")
+        print("After (located by row index):")
         for orig_row, orig_latent, orig_target in track:
             pos = np.where(rows == orig_row)[0][0]
             status = "OK" if latent_ids[pos] == orig_latent and targets[pos] == orig_target else "MISMATCH"
@@ -216,7 +217,7 @@ for tree_height in tree_heights:
 
     # Sanity check for debugging
     if args.shuffle_y:
-        print("[SANITY] Shuffling targets — probe should return MSE ≈ baseline, R² ≈ 0")
+        print("[SANITY] Shuffling targets -> probe should return MSE approx baseline, R² approx 0")
         targets = rng.permutation(targets)
 
     val_size = int(0.3 * n_points)
@@ -256,7 +257,7 @@ for tree_height in tree_heights:
                 device=device,
                 max_batches=max_batches,
                 checkpoint=checkpoint,
-            )
+            )# note: splits is ignored for percolation, full dataset always returned. Just set ("train",)
             train_activations = all_acts["train"]["activations"]
 
         assert train_activations.ndim == 2
@@ -313,12 +314,14 @@ for tree_height in tree_heights:
                 z_u = latent_to_value[lid]
                 baseline_mse = (global_train_mean - z_u) ** 2
                 per_latent_rows.append({"latent_id": lid, "subtree_size": int(count), "cluster_size": latent_to_cluster_size.get(lid, 0), "cluster_id": latent_to_cluster_id.get(lid, 0), "mse": mse, "baseline_mse": baseline_mse})
-                #if debug:
-                #    if  mask.sum()  < 5:
-                #        print("\nlid, z_u = ", lid, z_u)
-                #        print("laten mse calculated: ", mse)
-                #        print("y_val[mask]: ", y_val[mask])
-                #        print("preds_val[mask]: ", preds_val[mask])
+                if debug:
+                    if  mask.sum()  < 10:
+                        print("\nlid, z_u = ", lid, z_u)
+                        print("laten mse calculated: ", mse)
+                        print("y_val[mask]: ", y_val[mask])
+                        print("preds_val[mask]: ", preds_val[mask])
+                        print("global_train mean: ", global_train_mean)
+                        print("baseline mse: ", baseline_mse)
                         
         mean_per_latent_mse = np.mean([r["mse"] for r in per_latent_rows]) if per_latent_rows else float("nan")
 
