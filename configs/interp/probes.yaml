@@ -1,23 +1,21 @@
 seed: 42
 
 output:
-  name: TestProbesTest_train_20260512_163158
+  name: TestProbesTest_train_20260512_163158_removedepthwindow.
 
 activations:
   input_run: outputstraining/Test_train_20260512_163158
   checkpoint: 
 
 probe:
-  include_hidden: true
+  include_hidden: true 
   include_raw_x: true  
   params:
-    tree_heights: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160, 165, 170, 175]
+    tree_heights: [15, 40, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160, 165, 170, 175]
     ridge_alpha: 1.0
     use_deltas: false
     min_latent_points: 150
     partial_sum: false
-    depth_window: null
-    debug: false
     features_path: data/percolation/genc_v1/percolation_dataset_size200000_dim100_seed0_gt_features_1cluster.npz 
 
 
