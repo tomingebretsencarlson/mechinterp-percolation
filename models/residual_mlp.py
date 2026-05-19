@@ -4,7 +4,7 @@ from utils.model_building_utils import get_activationfn
 class ResidualMLPBlock(nn.Module):
     """
     Residual MLP Block: 
-    x -> Linear(expansion) -> Activation -> Linear -> + residual.
+    x -> Linear(expansion) -> Activation -> Linear -> x + residual.
     """
 
     def __init__(self, d_model, expansion,activation="gelu", **kwargs):
