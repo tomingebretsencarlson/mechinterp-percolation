@@ -58,7 +58,7 @@ print(f"Min points per latent: {min_latent_points}")
 # Make run_dir and save probe_config
 base_name = probe_config["output"]["name"]
 checkpoint_stem = Path(checkpoint).stem if checkpoint is not None else "model_final"
-parent_dir = Path("outputsinterp") / f"{base_name}_regresslat"
+parent_dir = Path("outputsinterp") / f"{base_name}_proberesults"
 probe_run_dir = parent_dir / checkpoint_stem
 probe_run_dir.mkdir(parents=True, exist_ok=False)
 shutil.copy(args.config_path, probe_run_dir / "probe_config.yaml")
