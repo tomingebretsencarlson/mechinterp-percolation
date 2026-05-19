@@ -1,13 +1,13 @@
 seed: 42
 
 output: 
-  name: Test_train
+  name: Test_trainv1
 
 dataset:
   name: percolation
   params:
       data_dir: data/percolation/genc_v1/
-      data_file: percolation_dataset_size200000_dim100_seed0_1cluster.npz #percolation_dataset_size200000_dim100_seed0.npz
+      data_file: percolation_dataset_size200000_dim100_seed0_1cluster.npz 
 
 logging:
   wandb: false  # set to true to enable W&B logging

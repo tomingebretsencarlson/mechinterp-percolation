@@ -43,16 +43,16 @@ print("Input run: ", model_run_dir)
 max_batches = probe_config["activations"].get("max_batches", None)
 checkpoint = probe_config["activations"].get("checkpoint", None)
 print("Checkpoint: ", checkpoint if checkpoint is not None else "model_final.pt")
-tree_heights = probe_config["probe"]["params"]["tree_heights"]
-if isinstance(tree_heights, int):
-    tree_heights = [tree_heights]
+depths = probe_config["probe"]["params"]["depths"]
+if isinstance(depths, int):
+    depths = [depths]
 alpha = probe_config["probe"]["params"].get("ridge_alpha", 1.0)
 use_deltas = probe_config["probe"]["params"].get("use_deltas", False)
 min_latent_points = probe_config["probe"]["params"].get("min_latent_points", 1)
 partial_sum = probe_config["probe"]["params"].get("partial_sum", False)
 print("Training probe using deltas: ", use_deltas)
-print(f"Probing tree heights: {tree_heights}")
-print(f"Target mode: {'partial sum' if partial_sum else 'individual z_u'}")
+print(f"Probing depth: {depths}")
+print(f"Target mode: {'partial sum' if partial_sum else 'individual latent'}")
 print(f"Min points per latent: {min_latent_points}")
 
 # Make run_dir and save probe_config
@@ -140,10 +140,10 @@ else:
 
 n_train = len(first_acts)
 
-# Outer loop over depths (= tree_height)
-for tree_height in tree_heights:
+# Outer loop over depths (= depth)
+for depth in depths:
     print(f"\n{'='*50}")
-    print(f"=== Tree height: {tree_height} ===")
+    print(f"=== depth: {depth} ===")
     print(f"{'='*50}")
 
     # Build rows, z_u targets, and latent ids
@@ -151,11 +151,11 @@ for tree_height in tree_heights:
     for i in range(n_train):
         row = features.getrow(i)
         path_len = len(row.indices)
-        in_window = path_len > tree_height 
+        in_window = path_len > depth 
         if in_window:
             rows.append(i)
-            targets.append(float(row.data[:tree_height+1].sum()) if partial_sum else float(row.data[tree_height]))
-            latent_ids.append(int(row.indices[tree_height]))  # which latent
+            targets.append(float(row.data[:depth+1].sum()) if partial_sum else float(row.data[depth]))
+            latent_ids.append(int(row.indices[depth]))  # which latent
 
     rows = np.array(rows)
     targets = np.array(targets, dtype=np.float32)
@@ -176,7 +176,7 @@ for tree_height in tree_heights:
             latent_to_cluster_size[lid] = int(metadata_cluster_size[i])
             latent_to_cluster_id[lid] = int(metadata_cluster_id[i])
     n_removed = len(unique_latents_raw) - len(unique_latents)
-    print(f"Found {n_points} points with latent at depth {tree_height}, {len(unique_latents)} unique latents ({n_removed} removed with <{min_latent_points} pts)")
+    print(f"Found {n_points} points with latent at depth {depth}, {len(unique_latents)} unique latents ({n_removed} removed with <{min_latent_points} pts)")
     print(f"Subtree sizes — min: {counts.min()}, max: {counts.max()}, mean: {counts.mean():.1f}")
     latent_to_value = {lid: targets[latent_ids == lid][0] for lid in unique_latents}
     latent_to_count = dict(zip(unique_latents, counts))
@@ -304,8 +304,8 @@ for tree_height in tree_heights:
     df["mean_baseline_mse"] = mean_baseline_mse
     df["n_points"] = n_points
     df["n_latents"] = len(unique_latents)
-    df.to_csv(probe_run_dir / f"regresslat_depth_{tree_height}.csv", index=False)
-    print(f"\nResults saved to {probe_run_dir / f'regresslat_depth_{tree_height}.csv'}")
+    df.to_csv(probe_run_dir / f"regresslat_depth_{depth}.csv", index=False)
+    print(f"\nResults saved to {probe_run_dir / f'regresslat_depth_{depth}.csv'}")
     print(df[["layer", "global_mse", "global_r2", "mean_per_latent_mse"]].to_string(index=False))
 
     # Save per-latent MSE for all layers
@@ -313,6 +313,6 @@ for tree_height in tree_heights:
         if metrics["per_latent"]:
             safe_name = layer_name.replace(".", "_").replace("/", "_")
             df_per_latent = pd.DataFrame(metrics["per_latent"])
-            df_per_latent.to_csv(probe_run_dir / f"per_latent_mse_depth_{tree_height}_{safe_name}.csv", index=False)
+            df_per_latent.to_csv(probe_run_dir / f"per_latent_mse_depth_{depth}_{safe_name}.csv", index=False)
 
 print(f"\nProbe sweep done. Results in {probe_run_dir}")
