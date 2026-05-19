@@ -122,9 +122,7 @@ for i, layer in enumerate(layers_sorted):
     entries = layer_data[layer]
     xs = [e["depth"] for e in entries]
     ys = [e["global_r2"] for e in entries]
-    print("layer: ", layer)
-    print("depths: ", xs)
-    print("R2: ", ys)
+
     ax.plot(xs, ys, marker="s" if is_hidden_layer(layer) else "o",
             linestyle=":" if is_hidden_layer(layer) else "-",
             color=color_map[block_color_key(layer)], fillstyle="none" if is_hidden_layer(layer) else "full")
