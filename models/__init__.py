@@ -8,10 +8,7 @@ def build_model(config):
     params = model_config["params"]
     print("params in build model: ", params)
 
-    if model_name == "transformer_style_mlp":
-        from .transformer_style_mlp import TransformerStyleMLP   
-        return TransformerStyleMLP(**params)
-    elif model_name == "residual_mlp":
+    if model_name == "residual_mlp":
         from .residual_mlp import ResidualMLP   
         return ResidualMLP(**params)
     else:
