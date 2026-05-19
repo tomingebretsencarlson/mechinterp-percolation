@@ -1,28 +1,29 @@
 # Mechanistic Interpretability on Synthetic Percolation Data
 
-This repo studies mechanistic interpretability in residual MLPs trained on
-synthetic percolation-structured data. The goal is to understand what
-computational structures emerge when a neural network learns to predict
-a tree-weighted signal from high-dimensional spatial embeddings.
+This repo provides a framework for training neural networks on synthetic percolation-structured data and applying mechanistic interpretability tools to study their internal representations. The goal is to understand what computational structures emerge when a network learns to predict a hierarchically structured signal from high-dimensional embeddings.
+
+Currently implemented: residual MLP training and layer-wise linear probing of activations against ground-truth latent variables.
 
 ## Data
 
-Using statistically self-similar synthetic datasets based on a percolation cluster model. Data is generated using [percolation-synthetic-data](https://github.com/aribrill/percolation-synthetic-data/tree/main).
+Synthetic datasets based on a percolation cluster model with explicit ground-truth latent variables, designed as a testbed for mechanistic interpretability experiments.
+
+Data is generated using [percolation-synthetic-data](https://github.com/aribrill/percolation-synthetic-data/tree/main).
 
 ## Structure
 ```
 data/           – synthetic data storage
-datasets/       – PyTorch Dataset wrappers
-models/         – MLP architectures (residual mlp)
+datasets/       – Dataset wrappers
+models/         – model architectures (residual MLP, ...)
 training/       – training loop, losses, optimizers, scheduler
 interp/         – mechanistic interpretability tools
 configs/        – YAML experiment configurations
-  training/         – configs for NN training runs
+  training/         – configs for model training runs
   interp/           – configs for interpretability runs
-analysis/       – notebooks and plotting utilities
-scripts/        – entry points for training and evaluation
+analysis/       – plotting scripts
+scripts/        – entry points
   train_nn.py         – train a neural network
-  train_probes.py     - train probes
+  train_probes.py     – train linear probes on layer activations
 ```
 
 Output folders (not tracked in git, created on first run):
@@ -33,25 +34,31 @@ outputsinterp/     – interpretability results
 
 ## Setup
 
-**Local:**
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Training the NN 
+## Training a model
 
 Training is fully configuration-driven via YAML files in `configs/training/`.
 
 ```bash
-PYTHONPATH=. python -m scripts.train_nn.py --config_path configs/training/percolation.yaml
+PYTHONPATH=. python scripts/train_nn.py --config_path configs/training/percolation.yaml
 ```
 
-Outputs (model checkpoint, loss curves, config copy) are saved to `outputstraining/<run_name>_<timestamp>/`.
+Outputs (model checkpoints, loss curves, config copy) are saved to `outputstraining/<run_name>_<timestamp>/`.
 
-## Training probes 
+## Training linear probes
 
+Probes are trained on cached layer activations and evaluated against ground-truth latent variables at each tree depth. Configure via YAML files in `configs/interp/`.
+
+```bash
+PYTHONPATH=. python scripts/train_probes.py --config_path configs/interp/probes.yaml
+```
+
+Outputs are saved to `outputsinterp/<run_name>_proberesults/<checkpoint_stem>/`.
 
 ## Configuration
 
@@ -60,14 +67,14 @@ Key fields in a training config:
 ```yaml
 seed: 42
 
-output: 
-  name: sweep_percolation_run_1_cluster_wd_0p01_lr1e-4consineetamin1e-6
+output:
+  name: my_run
 
 dataset:
   name: percolation
   params:
-      data_dir: data/percolation/genc_v1/
-      data_file: percolation_dataset_size200000_dim100_seed0.npz
+    data_dir: data/percolation/genc_v1/
+    data_file: percolation_dataset_size200000_dim100_seed0.npz
 
 model:
   name: residual_mlp
@@ -83,24 +90,41 @@ training:
   loss: mse
   batch_size: 1024
   epochs: 500
-  max_patience: 3200 # Set higher than epochs to dissable 
-  diag_interval: 100 # log diagnostics every N epochs
-  checkpoint_interval: 50  # save model checkpoint every N epochs
-  compute_update_norm: True  # log gradient update norms during training
-  max_grad_norm: .inf # gradient clipping; .inf disables it
+  max_patience: 5000   # set higher than epochs to disable early stopping
+  diag_interval: 100   # log diagnostics every N epochs
+  checkpoint_interval: 50
+  compute_update_norm: true
+  max_grad_norm: .inf  # gradient clipping; .inf disables it
   scheduler:
     name: cosine
-    patience: 50 # only used with ReduceLROnPlateau scheduler, ignored for cosine
-    factor: 0.5 # only used with ReduceLROnPlateau scheduler, ignored for cosine
-    T_max: 500  # should match epochs for a full cosine decay
-    eta_min: 0.000001 # minimum learning rate at end of cosine schedule
+    T_max: 500         # should match epochs for a full cosine decay
+    eta_min: 0.000001
   optimizer:
     name: adamw
     lr: 0.0001
     weight_decay: 0.01
-     
+```
 
+Key fields in a probe config:
 
+```yaml
+seed: 42
 
- 
+output:
+  name: my_probe_run
+
+activations:
+  input_run: outputstraining/my_run_<timestamp>
+  checkpoint: checkpoint_epoch200.pt  # omit to use model_final.pt
+
+probe:
+  include_hidden: true   # also probe hidden states inside each block
+  include_raw_x: true    # also probe raw input X
+  params:
+    depths: [10, 20, 40]  # tree depths to probe
+    ridge_alpha: 1.0
+    use_deltas: false           # probe block deltas (output - input) instead of absolute activations; only valid when include_hidden=false and include_raw_x=false
+    min_latent_points: 50       # skip latents with fewer descendants / points
+    partial_sum: false          # probe cumulative sum up to depth instead of individual latents
+    features_path: data/percolation/genc_v1/percolation_dataset_size200000_dim100_seed0_gt_features.npz
 ```
