@@ -50,13 +50,10 @@ alpha = probe_config["probe"]["params"].get("ridge_alpha", 1.0)
 use_deltas = probe_config["probe"]["params"].get("use_deltas", False)
 min_latent_points = probe_config["probe"]["params"].get("min_latent_points", 1)
 partial_sum = probe_config["probe"]["params"].get("partial_sum", False)
-depth_window = probe_config["probe"]["params"].get("depth_window", None)
-debug = probe_config["probe"]["params"].get("debug", False)
 print("Training probe using deltas: ", use_deltas)
 print(f"Probing tree heights: {tree_heights}")
 print(f"Target mode: {'partial sum' if partial_sum else 'individual z_u'}")
 print(f"Min points per latent: {min_latent_points}")
-print(f"Depth window: {depth_window if depth_window is not None else 'none (all points with depth > T)'}")
 
 # Make run_dir and save probe_config
 base_name = probe_config["output"]["name"]
@@ -154,7 +151,7 @@ for tree_height in tree_heights:
     for i in range(n_train):
         row = features.getrow(i)
         path_len = len(row.indices)
-        in_window = path_len > tree_height if depth_window is None else (tree_height < path_len <= tree_height + 1 + depth_window)
+        in_window = path_len > tree_height 
         if in_window:
             rows.append(i)
             targets.append(float(row.data[:tree_height+1].sum()) if partial_sum else float(row.data[tree_height]))
@@ -184,18 +181,6 @@ for tree_height in tree_heights:
     latent_to_value = {lid: targets[latent_ids == lid][0] for lid in unique_latents}
     latent_to_count = dict(zip(unique_latents, counts))
 
-    if debug:
-        lids_to_print = unique_latents[:20] if len(unique_latents) > 20 else unique_latents
-        print(f"{'[DEBUG] First 20' if len(unique_latents) > 50 else 'All'} latents (latent_id, z_u, count):")
-        for lid in lids_to_print:
-            print(f"[DEBUG] latent {lid}: z_u = {latent_to_value[lid]:.4f}, count = {latent_to_count[lid]}, cluster_size = {latent_to_cluster_size.get(lid, 'N/A')}")
-
-        track = [(rows[i], latent_ids[i], targets[i]) for i in range(min(10, n_points))]
-        print("[DEBUG] Tracking 5 points through shuffle (dataset_idx, latent_id, z_u):")
-        print("  Before:")
-        for r, l, t in track:
-            print(f"    row={r}, latent={l}, z_u={t:.4f}")
-
     if n_points == 0:
         print("No points remaining after filtering. Skipping.")
         continue
@@ -206,14 +191,6 @@ for tree_height in tree_heights:
     rows = rows[perm]
     targets = targets[perm]
     latent_ids = latent_ids[perm]
-
-    if debug:
-        print("After (located by row index):")
-        for orig_row, orig_latent, orig_target in track:
-            pos = np.where(rows == orig_row)[0][0]
-            status = "OK" if latent_ids[pos] == orig_latent and targets[pos] == orig_target else "MISMATCH"
-            print(f"    row={rows[pos]}, latent={latent_ids[pos]}, z_u={targets[pos]:.4f}  [{status}]")
-
 
     # Sanity check for debugging
     if args.shuffle_y:
@@ -272,12 +249,6 @@ for tree_height in tree_heights:
         # Normalize using train rows stats only
         probe_np = probe_tensor.detach().numpy()
 
-        if debug:
-            print("Before norm:")
-            for i in [10, 100]:
-                orig_idx = rows[i]
-                print(f"[DEBUG] Probe input check — position {i}, dataset_idx={orig_idx}")
-                print(f"  X raw first 5: {probe_np[orig_idx, :5].tolist()}")
 
         X_all = probe_np[rows]
         mean, std = get_stats(torch.tensor(X_all[:train_size]))
@@ -288,14 +259,6 @@ for tree_height in tree_heights:
         X_train = X_all[:train_size]
         X_val = X_all[train_size:]
 
-        if debug:
-            print("After norm:")
-            for i in [10, 100]:
-                orig_idx = rows[i]
-                print(f"[DEBUG] Probe input check — position {i}, dataset_idx={orig_idx}")
-                print(f"  z_u target:        {y_train[i]:.4f}")
-                print(f"  latent_id:         {latent_ids[i]}")
-                print(f"  X first 5 values:  {X_train[i, :5].tolist()}")
 
         reg = Ridge(alpha=alpha)
         reg.fit(X_train, y_train)
@@ -314,15 +277,7 @@ for tree_height in tree_heights:
                 z_u = latent_to_value[lid]
                 baseline_mse = (global_train_mean - z_u) ** 2
                 per_latent_rows.append({"latent_id": lid, "subtree_size": int(count), "cluster_size": latent_to_cluster_size.get(lid, 0), "cluster_id": latent_to_cluster_id.get(lid, 0), "mse": mse, "baseline_mse": baseline_mse})
-                if debug:
-                    if  mask.sum()  < 10:
-                        print("\nlid, z_u = ", lid, z_u)
-                        print("laten mse calculated: ", mse)
-                        print("y_val[mask]: ", y_val[mask])
-                        print("preds_val[mask]: ", preds_val[mask])
-                        print("global_train mean: ", global_train_mean)
-                        print("baseline mse: ", baseline_mse)
-                        
+  
         mean_per_latent_mse = np.mean([r["mse"] for r in per_latent_rows]) if per_latent_rows else float("nan")
 
         results[layer_name] = {
@@ -349,7 +304,6 @@ for tree_height in tree_heights:
     df["mean_baseline_mse"] = mean_baseline_mse
     df["n_points"] = n_points
     df["n_latents"] = len(unique_latents)
-    df["depth_window"] = depth_window if depth_window is not None else "none"
     df.to_csv(probe_run_dir / f"regresslat_depth_{tree_height}.csv", index=False)
     print(f"\nResults saved to {probe_run_dir / f'regresslat_depth_{tree_height}.csv'}")
     print(df[["layer", "global_mse", "global_r2", "mean_per_latent_mse"]].to_string(index=False))
